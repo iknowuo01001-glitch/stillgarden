@@ -69,12 +69,30 @@ function randGene(seed:number,slot:number,max:number){ return Math.floor(hash(se
 export function emptyPetSave(now=Date.now()): PetSave {
   return { version:1,pets:[],activePetId:null,eggs:[],discovered:[],visitor:null,nextVisitorAt:now+2*60_000,lurePlant:null,rarePity:0,nestMisses:0,selectedPetId:null,visitorTrust:{},visitorVisits:{} };
 }
+const validPetSpecies = new Set<PetSpeciesId>(petSpecies.map((s)=>s.id));
+const validKnacks = new Set<KnackId>(knackCatalog.map((k)=>k.id));
+function finiteNumber(value:unknown,fallback:number){const n=Number(value);return Number.isFinite(n)?n:fallback;}
+function boundedInt(value:unknown,fallback:number,min:number,max:number){return Math.max(min,Math.min(max,Math.floor(finiteNumber(value,fallback))));}
+function normalizeGenes(raw:any):PetGenes{return {coat:boundedInt(raw?.coat,0,0,11),accent:boundedInt(raw?.accent,0,0,9),pattern:boundedInt(raw?.pattern,0,0,6),ears:boundedInt(raw?.ears,0,0,4),tail:boundedInt(raw?.tail,0,0,4),bloom:boundedInt(raw?.bloom,0,0,5),size:boundedInt(raw?.size,3,0,6),lustre:["plain","dappled","shimmer","prismatic","eclipse"].includes(raw?.lustre)?raw.lustre:"plain"};}
+function normalizeCare(raw:any):Care{return {tend:Math.max(0,finiteNumber(raw?.tend,0)),cuddle:Math.max(0,finiteNumber(raw?.cuddle,0)),forage:Math.max(0,finiteNumber(raw?.forage,0)),grow:Math.max(0,finiteNumber(raw?.grow,0))};}
+function normalizePet(raw:any):Gardenkin|null{if(!raw||typeof raw.id!=="string"||!validPetSpecies.has(raw.speciesId))return null;const sp=speciesOf(raw.speciesId);return {id:raw.id.slice(0,80),speciesId:raw.speciesId,name:typeof raw.name==="string"&&raw.name.trim()?raw.name.trim().slice(0,22):sp.name,bornAt:Math.max(0,finiteNumber(raw.bornAt,Date.now())),generation:boundedInt(raw.generation,1,1,9999),parents:Array.isArray(raw.parents)?raw.parents.filter((v:any)=>typeof v==="string").slice(0,2):[],xp:Math.max(0,finiteNumber(raw.xp,0)),bond:Math.max(0,finiteNumber(raw.bond,0)),genes:normalizeGenes(raw.genes),aptitude:boundedInt(raw.aptitude,1,1,5),care:normalizeCare(raw.care),activeKnacks:Array.isArray(raw.activeKnacks)?raw.activeKnacks.filter((k:any)=>validKnacks.has(k)).slice(-3):[]};}
+function normalizeEgg(raw:any):PetEgg|null{if(!raw||typeof raw.id!=="string"||!validPetSpecies.has(raw.speciesId))return null;const createdAt=Math.max(0,finiteNumber(raw.createdAt,Date.now()));return {id:raw.id.slice(0,80),speciesId:raw.speciesId,readyAt:Math.max(createdAt,finiteNumber(raw.readyAt,createdAt)),createdAt,source:typeof raw.source==="string"?raw.source.slice(0,160):"garden nest",odds:Math.max(1,finiteNumber(raw.odds,1)),geneSeed:finiteNumber(raw.geneSeed,Math.random()*1e9),parents:Array.isArray(raw.parents)?raw.parents.filter((v:any)=>typeof v==="string").slice(0,2):[],generation:boundedInt(raw.generation,1,1,9999)};}
+function normalizeSpeciesRecord(raw:any){const out:Partial<Record<PetSpeciesId,number>>={};if(raw&&typeof raw==="object")for(const [key,value] of Object.entries(raw))if(validPetSpecies.has(key as PetSpeciesId))out[key as PetSpeciesId]=Math.max(0,finiteNumber(value,0));return out;}
+export function normalizePetSave(raw:unknown,now=Date.now()):PetSave{
+  const base=emptyPetSave(now);if(!raw||typeof raw!=="object")return base;const saved=raw as any;
+  const pets=(Array.isArray(saved.pets)?saved.pets:[]).map(normalizePet).filter(Boolean) as Gardenkin[];
+  const petIds=new Set(pets.map(p=>p.id));
+  const eggs=(Array.isArray(saved.eggs)?saved.eggs:[]).map(normalizeEgg).filter(Boolean).slice(0,4) as PetEgg[];
+  const discovered=(Array.isArray(saved.discovered)?saved.discovered:[]).filter((id:any)=>validPetSpecies.has(id));
+  let visitor:Visitor|null=null;if(saved.visitor&&validPetSpecies.has(saved.visitor.speciesId)){const arrivedAt=Math.max(0,finiteNumber(saved.visitor.arrivedAt,now));visitor={speciesId:saved.visitor.speciesId,arrivedAt,leavesAt:Math.max(arrivedAt,finiteNumber(saved.visitor.leavesAt,arrivedAt)),visits:boundedInt(saved.visitor.visits,1,1,99999),trust:Math.max(0,finiteNumber(saved.visitor.trust,0)),greeted:Boolean(saved.visitor.greeted),offered:Boolean(saved.visitor.offered)};}
+  const activePetId=typeof saved.activePetId==="string"&&petIds.has(saved.activePetId)?saved.activePetId:(pets[0]?.id??null);
+  const selectedPetId=typeof saved.selectedPetId==="string"&&petIds.has(saved.selectedPetId)?saved.selectedPetId:activePetId;
+  return {...base,...saved,version:1,pets,activePetId,selectedPetId,eggs,discovered:[...new Set(discovered)] as PetSpeciesId[],visitor,nextVisitorAt:Math.max(now,finiteNumber(saved.nextVisitorAt,base.nextVisitorAt)),lurePlant:typeof saved.lurePlant==="string"?saved.lurePlant:null,rarePity:Math.max(0,finiteNumber(saved.rarePity,0)),nestMisses:boundedInt(saved.nestMisses,0,0,100000),visitorTrust:normalizeSpeciesRecord(saved.visitorTrust),visitorVisits:normalizeSpeciesRecord(saved.visitorVisits)};
+}
 export function loadPetSave(): PetSave {
   if (typeof window==="undefined") return emptyPetSave();
-  try {
-    const raw=localStorage.getItem(PET_SAVE_KEY); if(!raw) return emptyPetSave(); const saved=JSON.parse(raw) as Partial<PetSave>;
-    return { ...emptyPetSave(), ...saved, pets:Array.isArray(saved.pets)?saved.pets:[], eggs:Array.isArray(saved.eggs)?saved.eggs:[], discovered:Array.isArray(saved.discovered)?saved.discovered:[], visitorTrust:saved.visitorTrust??{}, visitorVisits:saved.visitorVisits??{} };
-  } catch { return emptyPetSave(); }
+  try { const raw=localStorage.getItem(PET_SAVE_KEY); return raw?normalizePetSave(JSON.parse(raw)):emptyPetSave(); }
+  catch { return emptyPetSave(); }
 }
 export function savePetSave(save:PetSave){ if(typeof window!=="undefined"){ localStorage.setItem(PET_SAVE_KEY,JSON.stringify(save)); window.dispatchEvent(new CustomEvent("stillgarden-pets-changed")); } }
 export function readMainSave(): any { if(typeof window==="undefined") return null; try{return JSON.parse(localStorage.getItem(MAIN_SAVE_KEY)||"null");}catch{return null;} }
@@ -135,11 +153,12 @@ export function inviteVisitor(save:PetSave):PetSave {
 export function setLureFromHarvest(save:PetSave,plantId:string):{save:PetSave;ok:boolean}{ const main=readMainSave(); if(!main?.harvested||Number(main.harvested[plantId]||0)<1)return {save,ok:false}; main.harvested[plantId]-=1; writeMainSave(main); return {save:{...save,lurePlant:plantId,nextVisitorAt:Math.min(save.nextVisitorAt,Date.now()+4*60_000)},ok:true}; }
 
 export function maybeFindNest(save:PetSave,stage:number):{save:PetSave;found:PetEgg|null}{
+  if(save.eggs.length>=4)return {save,found:null};
   const active=save.pets.find(p=>p.id===save.activePetId); const seednose=active?.activeKnacks.includes("seednose")??false; const chance=.09+(seednose ? .035 : 0)+Math.min(.11,save.nestMisses*.012);
   if(Math.random()>chance) return {save:{...save,nestMisses:save.nestMisses+1},found:null};
   const speciesId=weightedSpecies(stage,save.lurePlant,save.rarePity); const sp=speciesOf(speciesId); const baseMinutes=[0,8,20,45,90,180,300][sp.rarity]||30;
   const egg:PetEgg={id:uid("egg"),speciesId,readyAt:Date.now()+baseMinutes*60_000,createdAt:Date.now(),source:"found beneath a settled garden",odds:Math.max(4,Math.round(1/(chance*(1/Math.max(1,sp.rarity))))),geneSeed:Math.random()*1e9,parents:[],generation:1};
-  return {save:{...save,eggs:[...save.eggs,egg].slice(-4),nestMisses:0},found:egg};
+  return {save:{...save,eggs:[...save.eggs,egg],nestMisses:0},found:egg};
 }
 export function hatchEgg(save:PetSave,eggId:string,now=Date.now()):{save:PetSave;pet:Gardenkin|null}{ const egg=save.eggs.find(e=>e.id===eggId);if(!egg||egg.readyAt>now)return {save,pet:null}; const parentPets=egg.parents.map(id=>save.pets.find(p=>p.id===id)).filter(Boolean) as Gardenkin[]; const pet=createPet(egg.speciesId,{parents:parentPets,generation:egg.generation,seed:egg.geneSeed}); return {pet,save:{...save,eggs:save.eggs.filter(e=>e.id!==eggId),pets:[...save.pets,pet],discovered:save.discovered.includes(pet.speciesId)?save.discovered:[...save.discovered,pet.speciesId],selectedPetId:pet.id,activePetId:save.activePetId??pet.id}}; }
 
@@ -156,6 +175,7 @@ export function breedPets(save:PetSave,aId:string,bId:string):{save:PetSave;ok:b
 
 export function activePet(save=loadPetSave()){ return save.pets.find(p=>p.id===save.activePetId)??null; }
 export function petAssistEvery(pet:Gardenkin){ const level=levelForPet(pet); let every=Math.max(9,23-Math.floor(level/7)-Math.floor(pet.aptitude/2)); if(pet.activeKnacks.includes("quickpaws"))every=Math.max(7,Math.floor(every*.88)); return every; }
+export function petChargeGain(pet:Gardenkin,restoredCount:number,moundCount=0){return Math.max(0,restoredCount)+(pet.activeKnacks.includes("moundwise")?Math.max(0,moundCount)*2:0);}
 export function speciesInfo(id:PetSpeciesId){return speciesOf(id);}
 export function starterSpecies(){return starterIds.map(speciesOf);}
 export function lustreLabel(l:Lustre){return l==="plain"?"natural":l;}

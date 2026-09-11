@@ -9,6 +9,7 @@ import {
   loadPetSave,
   maybeFindNest,
   petAssistEvery,
+  petChargeGain,
   savePetSave,
   speciesInfo,
   type Gardenkin,
@@ -65,8 +66,8 @@ export default function FieldPetActor({pet,onNotify}:Props){
   const completedKey=useRef<string|null>(null);
   const sequence=useRef(0);
   const motionControls=useRef<Array<{stop:()=>void}>>([]);
-  const syntheticPoke=useRef(false);
-  const petEffectUntil=useRef(0);
+  const petRestoreCells=useRef(new Set<string>());
+  const trackingPlot=useRef<string|null>(null);
   const lastAmbientPoke=useRef(0);
 
   const info=useMemo(()=>pet?speciesInfo(pet.speciesId):null,[pet?.speciesId]);
@@ -144,14 +145,8 @@ export default function FieldPetActor({pet,onNotify}:Props){
 
   function activateCell(button:HTMLButtonElement,index:number){
     if(button.dataset.restored==="true")return;
-    syntheticPoke.current=true;
-    petEffectUntil.current=Date.now()+850;
-    try{
-      button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
-      button.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
-    }finally{
-      window.setTimeout(()=>{syntheticPoke.current=false;},0);
-    }
+    const cell=Number(button.dataset.cell??index);
+    if(Number.isInteger(cell))window.dispatchEvent(new CustomEvent("stillgarden-pet-restore",{detail:{index:cell}}));
   }
 
   async function pokeCell(button:HTMLButtonElement,index:number,token:number){
@@ -225,14 +220,12 @@ export default function FieldPetActor({pet,onNotify}:Props){
 
   useEffect(()=>{
     const down=(event:PointerEvent)=>{
-      if(syntheticPoke.current)return;
       const target=event.target;
       if(!(target instanceof Element)||!target.closest("[data-cell]"))return;
       playerDragging.current=true;
       if(!assisting.current){sequence.current++;stopMotion();busy.current=false;setPose("watch")}
     };
     const up=()=>{
-      if(syntheticPoke.current)return;
       if(!playerDragging.current)return;
       playerDragging.current=false;
       const queued=pendingAssist.current;
@@ -252,7 +245,7 @@ export default function FieldPetActor({pet,onNotify}:Props){
   },[pet?.id,actor.visible]);
 
   useEffect(()=>{
-    if(!pet||reduceMotion)return;
+    if(!pet)return;
     let cancelled=false;
     const loop=async()=>{
       while(!cancelled){
@@ -274,23 +267,28 @@ export default function FieldPetActor({pet,onNotify}:Props){
   },[pet?.id,reduceMotion]);
 
   useEffect(()=>{
-    seen.current.clear();charge.current=0;completedKey.current=null;lastAmbientPoke.current=0;
-    const seed=window.setTimeout(()=>document.querySelectorAll<HTMLElement>("[data-cell][data-restored='true']").forEach(el=>seen.current.add(el.dataset.cell||"")),180);
+    seen.current.clear();petRestoreCells.current.clear();charge.current=0;completedKey.current=null;lastAmbientPoke.current=0;
+    const readPlot=()=>document.body.textContent?.match(/plot\s+(\d+)/i)?.[1]??null;
+    const seed=window.setTimeout(()=>{trackingPlot.current=readPlot();document.querySelectorAll<HTMLElement>("[data-cell][data-restored='true']").forEach(el=>seen.current.add(el.dataset.cell||""));},180);
+    const petRestored=(event:Event)=>{const cells=(event as CustomEvent<{cells?:number[]}>).detail?.cells??[];for(const cell of cells)petRestoreCells.current.add(String(cell));};
+    window.addEventListener("stillgarden-pet-restored",petRestored);
     const observer=new MutationObserver(mutations=>{
-      let newest:number|null=null,changed=0,playerGained=0;
-      const petCaused=Date.now()<=petEffectUntil.current;
+      const plot=readPlot();if(plot!==trackingPlot.current){trackingPlot.current=plot;seen.current.clear();petRestoreCells.current.clear();}
+      let newest:number|null=null,changed=0,playerGained=0,playerMounds=0;
       for(const mutation of mutations){
         if(mutation.type!=="attributes"||mutation.attributeName!=="data-restored")continue;
-        const el=mutation.target as HTMLElement;if(el.dataset.restored!=="true")continue;
-        const key=el.dataset.cell||"";if(seen.current.has(key))continue;
+        const el=mutation.target as HTMLElement;const key=el.dataset.cell||"";
+        if(el.dataset.restored!=="true"){seen.current.delete(key);petRestoreCells.current.delete(key);continue;}
+        if(seen.current.has(key))continue;
         seen.current.add(key);newest=Number(key);changed++;
-        if(!petCaused&&!assisting.current)playerGained++;
+        const causedByPet=petRestoreCells.current.delete(key);
+        if(!causedByPet&&!assisting.current){playerGained++;if(el.dataset.bump==="true")playerMounds++;}
       }
       const save=loadPetSave(),current=activePet(save);if(!current||!changed)return;
       let next=save;
       if(playerGained>0){
         next=addPetProgress(save,current.id,playerGained,playerGained*.09,"tend");savePetSave(next);
-        charge.current+=playerGained;const refreshed=activePet(next);
+        charge.current+=petChargeGain(current,playerGained,playerMounds);const refreshed=activePet(next);
         if(refreshed&&charge.current>=petAssistEvery(refreshed)){charge.current=0;void runAssist(newest??0,refreshed)}
       }
       const all=[...document.querySelectorAll<HTMLElement>("[data-cell]")],done=all.length>0&&all.every(el=>el.dataset.restored==="true");
@@ -305,11 +303,11 @@ export default function FieldPetActor({pet,onNotify}:Props){
       }
     });
     observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["data-restored"]});
-    return()=>{window.clearTimeout(seed);observer.disconnect();sequence.current++;stopMotion()};
+    return()=>{window.clearTimeout(seed);window.removeEventListener("stillgarden-pet-restored",petRestored);observer.disconnect();sequence.current++;stopMotion()};
   },[pet?.id,reduceMotion]);
 
   if(!pet||!info)return null;
-  return <motion.div className={styles.actorMover} aria-hidden="true" style={{x,y,opacity:actor.visible?1:0}}>
+  return <motion.div className={styles.actorMover} data-testid="gardenkin-field-actor" aria-hidden="true" style={{x,y,opacity:actor.visible?1:0}}>
     <div className={styles.fieldActor} data-body={info.body} data-pose={actor.pose} data-facing={actor.facing} data-surface={actor.surface} data-lustre={pet.genes.lustre} style={{"--actor-coat":coat,"--actor-accent":accent} as React.CSSProperties}>
       <div className={styles.actorScale}>
         <div className={styles.actorVisual}>

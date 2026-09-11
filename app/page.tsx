@@ -318,18 +318,32 @@ function normalizeState(raw: unknown): GameState {
   const validShape = typeof saved.shapeId === "string" && saved.shapeId in fieldShapes ? saved.shapeId as ShapeId : "classic";
   const shape = fieldShapes[validShape];
   const active = new Set(activeCellsFor(shape));
+  const finite = (value: unknown, fallback: number) => { const n = Number(value); return Number.isFinite(n) ? n : fallback; };
   const seeds = emptySeeds();
   const harvested = emptyHarvested();
-  if (saved.seeds) for (const [key, value] of Object.entries(saved.seeds)) if (validSpecies.has(key as SpeciesId)) seeds[key as SpeciesId] = Math.max(0, Number(value) || 0);
+  if (saved.seeds) for (const [key, value] of Object.entries(saved.seeds)) if (validSpecies.has(key as SpeciesId)) seeds[key as SpeciesId] = Math.max(0, finite(value, 0));
   else { seeds.clover = 2; seeds.fern = 1; }
-  if (saved.harvested) for (const [key, value] of Object.entries(saved.harvested)) if (validSpecies.has(key as SpeciesId)) harvested[key as SpeciesId] = Math.max(0, Number(value) || 0);
-  const stage = Math.max(1, Number(saved.stage) || 1);
+  if (saved.harvested) for (const [key, value] of Object.entries(saved.harvested)) if (validSpecies.has(key as SpeciesId)) harvested[key as SpeciesId] = Math.max(0, finite(value, 0));
+  const stage = Math.max(1, Math.floor(finite(saved.stage, 1)));
   const restored = Array.isArray(saved.restored) ? [...new Set(saved.restored.filter((n): n is number => Number.isInteger(n) && active.has(n)))] : [];
-  const completedGardens = Math.max(0, Number(saved.completedGardens) || stage - 1);
-  const lifetimeRestored = Math.max(0, Number(saved.lifetimeRestored) || completedGardens * 80 + restored.length);
+  const completedGardens = Math.max(0, Math.floor(finite(saved.completedGardens, stage - 1)));
+  const lifetimeRestored = Math.max(0, Math.floor(finite(saved.lifetimeRestored, completedGardens * 80 + restored.length)));
   const milestoneRelics = relics.filter((item) => completedGardens >= item.unlockGardens).map((item) => item.id);
   const savedRelics = Array.isArray(saved.discoveredRelics) ? saved.discoveredRelics.filter((id): id is RelicId => validRelics.has(id as RelicId)) : [];
-  const plots = Array.from({ length: MAX_POTS }, (_, i) => saved.plots?.[i] ?? emptyPlot());
+  const plots = Array.from({ length: MAX_POTS }, (_, i) => {
+    const rawPlot = saved.plots?.[i];
+    if (!rawPlot?.species || !validSpecies.has(rawPlot.species as SpeciesId)) return emptyPlot();
+    const plantedAt = Math.max(0, finite(rawPlot.plantedAt, 0));
+    const readyAt = Math.max(plantedAt, finite(rawPlot.readyAt, plantedAt));
+    return { species: rawPlot.species as SpeciesId, plantedAt, readyAt, watered: Boolean(rawPlot.watered), fertilized: Boolean(rawPlot.fertilized) };
+  });
+  const discoveryLog: Partial<Record<SpeciesId, DiscoveryRecord>> = {};
+  if (saved.discoveryLog && typeof saved.discoveryLog === "object") for (const [key, value] of Object.entries(saved.discoveryLog)) {
+    if (!validSpecies.has(key as SpeciesId) || !value || typeof value !== "object") continue;
+    const record = value as Partial<DiscoveryRecord>;
+    const at = finite(record.at, 0);
+    if (at > 0) discoveryLog[key as SpeciesId] = { at, source: typeof record.source === "string" ? record.source.slice(0, 160) : "recorded in the garden" };
+  }
   return {
     ...base,
     ...saved,
@@ -338,19 +352,19 @@ function normalizeState(raw: unknown): GameState {
     restored,
     completedGardens,
     lifetimeRestored,
-    dew: Math.max(0, Number(saved.dew) || 0),
+    dew: Math.max(0, finite(saved.dew, 0)),
     ownedThemes: Array.isArray(saved.ownedThemes) ? saved.ownedThemes.filter((id): id is ThemeId => validThemes.has(id as ThemeId)) : ["fern"],
     equippedTheme: typeof saved.equippedTheme === "string" && validThemes.has(saved.equippedTheme as ThemeId) ? saved.equippedTheme as ThemeId : "fern",
     discoveredRelics: [...new Set([...savedRelics, ...milestoneRelics])],
     seeds,
     harvested,
     discoveredSpecies: Array.isArray(saved.discoveredSpecies) ? saved.discoveredSpecies.filter((id): id is SpeciesId => validSpecies.has(id as SpeciesId)) : ["clover", "fern"],
-    discoveryLog: saved.discoveryLog ?? {},
+    discoveryLog,
     plots,
-    potsUnlocked: Math.min(MAX_POTS, Math.max(2, Number(saved.potsUnlocked) || 2)),
-    shovelLevel: Math.min(MAX_TOOL_LEVEL, Math.max(1, Number(saved.shovelLevel) || 1)),
-    waterLevel: Math.min(MAX_TOOL_LEVEL, Math.max(1, Number(saved.waterLevel) || 1)),
-    fertilizer: Math.max(0, Number(saved.fertilizer) || 0),
+    potsUnlocked: Math.min(MAX_POTS, Math.max(2, Math.floor(finite(saved.potsUnlocked, 2)))),
+    shovelLevel: Math.min(MAX_TOOL_LEVEL, Math.max(1, Math.floor(finite(saved.shovelLevel, 1)))),
+    waterLevel: Math.min(MAX_TOOL_LEVEL, Math.max(1, Math.floor(finite(saved.waterLevel, 1)))),
+    fertilizer: Math.max(0, Math.floor(finite(saved.fertilizer, 0))),
     curios: Array.isArray(saved.curios) ? saved.curios.filter((id): id is CurioId => validCurios.has(id as CurioId)) : [],
     revealedCaches: Array.isArray(saved.revealedCaches) ? saved.revealedCaches.filter((n) => active.has(n)) : [],
     crackedRoots: Array.isArray(saved.crackedRoots) ? saved.crackedRoots.filter((n) => active.has(n)) : [],
@@ -502,19 +516,33 @@ export default function Home() {
   function growthPulse(seconds: number) { const current = gameRef.current; const t = Date.now(); const plots = current.plots.map((plot) => plot.species && plot.readyAt > t ? { ...plot, readyAt: Math.max(t, plot.readyAt - seconds * 1000) } : plot); commit({ ...current, plots }); showFeedback(`flow · plants gain ${seconds}s`); }
   function beginSweep() { flowRef.current = 0; flowMilestones.current = new Set(); setFlow(0); setDragging(true); }
   function endSweep() { setDragging(false); }
-  function restoreCell(index: number) {
-    const result = applyRestore(gameRef.current, index);
+  function restoreCell(index: number, source: "player" | "pet" = "player") {
+    const before = gameRef.current;
+    const result = applyRestore(before, index);
     if (!result.changed) return;
     commit(result.state);
     if (result.message) showFeedback(result.message);
     if (result.finds.length) presentDiscovery(result.finds[result.finds.length - 1]);
     else if (result.glimmerCount) showFeedback(`glimmer · +${result.glimmerCount * GLIMMER_BONUS} Dew`);
-    if (result.restoredCount > 0) {
+    if (source === "pet" && result.restoredCount > 0) {
+      const previous = new Set(before.restored);
+      const cells = result.state.restored.filter((cell) => !previous.has(cell));
+      window.dispatchEvent(new CustomEvent("stillgarden-pet-restored", { detail: { cells } }));
+    }
+    if (source === "player" && result.restoredCount > 0) {
       flowRef.current += result.restoredCount;
       setFlow(flowRef.current);
       for (const threshold of [16, 32, 48]) if (flowRef.current >= threshold && !flowMilestones.current.has(threshold)) { flowMilestones.current.add(threshold); growthPulse(threshold === 16 ? 6 : threshold === 32 ? 10 : 15); }
     }
   }
+  useEffect(() => {
+    const restoreFromPet = (event: Event) => {
+      const index = Number((event as CustomEvent<{ index?: number }>).detail?.index);
+      if (Number.isInteger(index)) restoreCell(index, "pet");
+    };
+    window.addEventListener("stillgarden-pet-restore", restoreFromPet);
+    return () => window.removeEventListener("stillgarden-pet-restore", restoreFromPet);
+  }, [sensoryOn]);
 
   function plantSeed(plotIndex: number, seedId: SpeciesId) {
     const current = gameRef.current;
@@ -590,6 +618,7 @@ export default function Home() {
   const journalPerPage = viewport.width < 720 ? 1 : 2;
   const journalMaxPage = Math.max(0, Math.ceil(species.length / journalPerPage) - 1);
   const journalEntries = species.slice(journalPage * journalPerPage, journalPage * journalPerPage + journalPerPage);
+  useEffect(() => { if (journalPage > journalMaxPage) setJournalPage(journalMaxPage); }, [journalPage, journalMaxPage]);
 
   return <main className={styles.shell} data-view={view} data-environment={environment.id} style={{ "--accent": theme.accent, "--accent-2": theme.accent2, "--ground": theme.ground, "--env-glow": environment.glow, "--env-surface": environment.surface } as React.CSSProperties}>
     <div className={styles.ambient} aria-hidden="true" />
@@ -604,7 +633,7 @@ export default function Home() {
         <div className={styles.fieldMeta}><div><strong>{mode.name}</strong><span>{shape.name} · {environment.name}</span></div><div><span>{caches.length - game.revealedCaches.filter((cell) => caches.includes(cell)).length} buried</span><span>flow {flow}</span></div></div>
         <div className={styles.progressLine}><span>Keeper {keeper.level}</span><div className={styles.progressTrack}><div style={{ width: `${keeper.fraction * 100}%` }}/></div><span>{progress}%</span></div>
         <div className={styles.boardWrap} ref={boardWrapRef}>
-          <div className={`${styles.board} ${complete ? styles.complete : ""}`} data-mode={mode.id} data-dragging={dragging ? "true" : "false"} data-settling={completionBurst ? "true" : "false"} data-shape={shape.id} style={{ "--field-cols": shape.cols, "--field-rows": shape.rows, width: `${fittedBoard.width}px`, height: `${fittedBoard.height}px` } as React.CSSProperties} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); beginSweep(); }} onPointerUp={endSweep} onPointerCancel={endSweep} onPointerMove={(event) => { const rect = event.currentTarget.getBoundingClientRect(); event.currentTarget.style.setProperty("--pointer-x", `${event.clientX - rect.left}px`); event.currentTarget.style.setProperty("--pointer-y", `${event.clientY - rect.top}px`); if (!dragging) return; const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null; const value = target?.closest<HTMLElement>("[data-cell]")?.dataset.cell; if (value !== undefined) restoreCell(Number(value)); }}>
+          <div className={`${styles.board} ${complete ? styles.complete : ""}`} data-testid="garden-board" data-mode={mode.id} data-dragging={dragging ? "true" : "false"} data-settling={completionBurst ? "true" : "false"} data-shape={shape.id} style={{ "--field-cols": shape.cols, "--field-rows": shape.rows, width: `${fittedBoard.width}px`, height: `${fittedBoard.height}px` } as React.CSSProperties} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); beginSweep(); }} onPointerUp={endSweep} onPointerCancel={endSweep} onPointerMove={(event) => { const rect = event.currentTarget.getBoundingClientRect(); event.currentTarget.style.setProperty("--pointer-x", `${event.clientX - rect.left}px`); event.currentTarget.style.setProperty("--pointer-y", `${event.clientY - rect.top}px`); if (!dragging) return; const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null; const value = target?.closest<HTMLElement>("[data-cell]")?.dataset.cell; if (value !== undefined) restoreCell(Number(value)); }}>
             {cells.map((index) => {
               if (!activeSet.has(index)) return <span key={index} className={styles.voidCell} aria-hidden="true"/>;
               const restored = restoredSet.has(index); const special = specials.includes(index); const cracked = game.crackedRoots.includes(index); const bump = bumps.includes(index);
@@ -627,10 +656,10 @@ export default function Home() {
 
       {view === "collection" && <section className={styles.journalView}>
         <div className={styles.bookTop}><span>Field journal · {game.discoveredSpecies.length}/{species.length} flora</span><span>Keeper {keeper.level}</span></div>
-        <div className={styles.book} data-single={journalPerPage === 1 ? "true" : "false"}>
+        <div className={styles.book} data-testid="journal-book" data-single={journalPerPage === 1 ? "true" : "false"}>
           {journalEntries.map((item, pageIndex) => { const known = game.discoveredSpecies.includes(item.id); const record = game.discoveryLog[item.id]; return <article className={styles.bookPage} key={item.id}><div className={styles.pageNumber}>{journalPage * journalPerPage + pageIndex + 1}</div>{known ? <><div className={styles.pressedPlant} style={{ "--plant": item.color } as React.CSSProperties}><span/><span/><span/></div><p className={styles.handNote}>{item.kind}</p><h2>{item.name}</h2><p>{item.note}</p><dl><div><dt>first recorded</dt><dd>{formatRecorded(record)}</dd></div><div><dt>came from</dt><dd>{record?.source ?? "before this journal began"}</dd></div><div><dt>rarity</dt><dd>{rarityName(item.rarity)}</dd></div><div><dt>on hand</dt><dd>{game.seeds[item.id]} seeds · {game.harvested[item.id]} harvested</dd></div>{item.parents && <div><dt>cross</dt><dd>{species.find((s) => s.id === item.parents?.[0])?.name} × {species.find((s) => s.id === item.parents?.[1])?.name}</dd></div>}</dl></> : <><div className={styles.unknownSpecimen}>?</div><p className={styles.handNote}>{item.kind === "hybrid" ? "an untested cross" : item.kind === "mutation" ? "an unrecorded mutation" : "somewhere ahead"}</p><h2>not recorded</h2><p>{item.kind === "wild" ? `Wild seed appears from around garden ${item.unlockStage}.` : item.kind === "hybrid" ? "Try crossing harvested plants." : "Mutations can appear during growing and crossing."}</p></>}</article>; })}
         </div>
-        <div className={styles.bookControls}><button disabled={journalPage === 0} onClick={() => setJournalPage((p) => Math.max(0, p - 1))}>← earlier</button><span>{journalPage + 1} / {journalMaxPage + 1}</span><button disabled={journalPage >= journalMaxPage} onClick={() => setJournalPage((p) => Math.min(journalMaxPage, p + 1))}>later →</button></div>
+        <div className={styles.bookControls} data-testid="journal-controls"><button disabled={journalPage === 0} onClick={() => setJournalPage((p) => Math.max(0, p - 1))}>← earlier</button><span>{journalPage + 1} / {journalMaxPage + 1}</span><button disabled={journalPage >= journalMaxPage} onClick={() => setJournalPage((p) => Math.min(journalMaxPage, p + 1))}>later →</button></div>
       </section>}
 
       {findEvent && <button className={styles.findToast} onClick={() => setFindEvent(null)}><span>{rarityName(findEvent.rarity)} {findEvent.kind}</span><strong>{findEvent.label}</strong><em>{findEvent.detail}{findEvent.odds ? ` · about 1 in ${findEvent.odds}` : ""}</em></button>}
