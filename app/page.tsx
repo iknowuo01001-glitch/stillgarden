@@ -52,19 +52,19 @@ const fieldModes = [
 ] as const;
 
 const species = [
-  { id: "clover", name: "Cloud Clover", rarity: 1, growMs: 45_000, color: "#82a277", note: "A forgiving first grower." },
-  { id: "fern", name: "Button Fern", rarity: 1, growMs: 65_000, color: "#5f8068", note: "Unfurls in compact spirals." },
-  { id: "poppy", name: "Dust Poppy", rarity: 1, growMs: 80_000, color: "#b97f82", note: "Papery petals and warm seeds." },
-  { id: "rainmint", name: "Rainmint", rarity: 2, growMs: 105_000, color: "#6f98a0", note: "Cool leaves with silver edges." },
-  { id: "moonbell", name: "Moonbell", rarity: 2, growMs: 130_000, color: "#8583a2", note: "A pale bell that opens late." },
-  { id: "sunreed", name: "Sunreed", rarity: 2, growMs: 155_000, color: "#b79561", note: "Tall stems that hold warm light." },
-  { id: "roseclover", name: "Rose Clover", rarity: 3, growMs: 170_000, color: "#ad7f8d", note: "A clover-poppy cross." , parents: ["clover", "poppy"] },
+  { id: "clover", name: "Cloud Clover", rarity: 1, growMs: 45_000, color: "#82a277", note: "A forgiving first grower.", parents: null },
+  { id: "fern", name: "Button Fern", rarity: 1, growMs: 65_000, color: "#5f8068", note: "Unfurls in compact spirals.", parents: null },
+  { id: "poppy", name: "Dust Poppy", rarity: 1, growMs: 80_000, color: "#b97f82", note: "Papery petals and warm seeds.", parents: null },
+  { id: "rainmint", name: "Rainmint", rarity: 2, growMs: 105_000, color: "#6f98a0", note: "Cool leaves with silver edges.", parents: null },
+  { id: "moonbell", name: "Moonbell", rarity: 2, growMs: 130_000, color: "#8583a2", note: "A pale bell that opens late.", parents: null },
+  { id: "sunreed", name: "Sunreed", rarity: 2, growMs: 155_000, color: "#b79561", note: "Tall stems that hold warm light.", parents: null },
+  { id: "roseclover", name: "Rose Clover", rarity: 3, growMs: 170_000, color: "#ad7f8d", note: "A clover-poppy cross.", parents: ["clover", "poppy"] },
   { id: "mossmint", name: "Mossmint", rarity: 3, growMs: 185_000, color: "#688c77", note: "Fern softness with rainmint scent.", parents: ["fern", "rainmint"] },
   { id: "duskbell", name: "Dusk Bell", rarity: 3, growMs: 200_000, color: "#777792", note: "Moonbell crossed with rainmint.", parents: ["moonbell", "rainmint"] },
   { id: "emberpetal", name: "Ember Petal", rarity: 3, growMs: 215_000, color: "#b37d69", note: "Sunreed warmth in poppy petals.", parents: ["sunreed", "poppy"] },
   { id: "miststar", name: "Mist Star", rarity: 4, growMs: 230_000, color: "#8c96a7", note: "A quiet clover-moonbell hybrid.", parents: ["clover", "moonbell"] },
   { id: "goldfern", name: "Gold Fern", rarity: 4, growMs: 245_000, color: "#9a936b", note: "Sunreed light caught in fern fronds.", parents: ["sunreed", "fern"] },
-  { id: "wildstar", name: "Wild Star", rarity: 5, growMs: 280_000, color: "#9a86a8", note: "A rare mutation from uncertain crosses." },
+  { id: "wildstar", name: "Wild Star", rarity: 5, growMs: 280_000, color: "#9a86a8", note: "A rare mutation from uncertain crosses.", parents: null },
 ] as const;
 
 const LEVEL_THRESHOLDS = [0, 50, 140, 260, 420, 620, 860, 1140, 1480, 1880, 2340, 2860];
@@ -74,6 +74,7 @@ type RelicId = (typeof relics)[number]["id"];
 type CurioId = (typeof curios)[number]["id"];
 type SpeciesId = (typeof species)[number]["id"];
 type FieldMode = (typeof fieldModes)[number];
+type Environment = (typeof environments)[number];
 type ViewId = "field" | "grow" | "collection";
 
 type Plot = {
@@ -159,8 +160,8 @@ function levelFor(total: number) {
   return level;
 }
 
-function environmentFor(completedGardens: number) {
-  let current = environments[0];
+function environmentFor(completedGardens: number): Environment {
+  let current: Environment = environments[0];
   for (const environment of environments) if (completedGardens >= environment.unlockGardens) current = environment;
   return current;
 }
