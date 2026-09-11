@@ -19,9 +19,7 @@ type Facing = "left" | "right";
 type Surface = "floor" | "left-wall" | "right-wall";
 type Point = { x:number; y:number };
 type Props = { pet:Gardenkin|null; onNotify:(text:string)=>void };
-
 type ActorState = { visible:boolean; pose:Pose; facing:Facing; surface:Surface };
-
 type PendingAssist = { origin:number; pet:Gardenkin } | null;
 
 const wait=(ms:number)=>new Promise<void>(resolve=>window.setTimeout(resolve,ms));
@@ -67,6 +65,9 @@ export default function FieldPetActor({pet,onNotify}:Props){
   const completedKey=useRef<string|null>(null);
   const sequence=useRef(0);
   const motionControls=useRef<Array<{stop:()=>void}>>([]);
+  const syntheticPoke=useRef(false);
+  const petEffectUntil=useRef(0);
+  const lastAmbientPoke=useRef(0);
 
   const info=useMemo(()=>pet?speciesInfo(pet.speciesId):null,[pet?.speciesId]);
   const coat=pet?`hsl(${82+pet.genes.coat*12} 24% ${44+pet.genes.size}%)`:"#80906f";
@@ -141,14 +142,25 @@ export default function FieldPetActor({pet,onNotify}:Props){
     return buttons.sort(()=>Math.random()-.5).slice(0,1+extra);
   }
 
+  function activateCell(button:HTMLButtonElement,index:number){
+    if(button.dataset.restored==="true")return;
+    syntheticPoke.current=true;
+    petEffectUntil.current=Date.now()+850;
+    try{
+      button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
+      button.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
+    }finally{
+      window.setTimeout(()=>{syntheticPoke.current=false;},0);
+    }
+  }
+
   async function pokeCell(button:HTMLButtonElement,index:number,token:number){
     if(!(await walkToCell(button,token))||token!==sequence.current)return;
     setPose("inspect");await wait(reduceMotion?50:360);
     if(token!==sequence.current)return;
     setPose("poke");
     await wait(reduceMotion?40:230);
-    button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
-    button.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,pointerId:120+index,pointerType:"mouse"}));
+    activateCell(button,index);
     await wait(reduceMotion?50:420);
   }
 
@@ -172,10 +184,21 @@ export default function FieldPetActor({pet,onNotify}:Props){
 
   async function ambientInspect(token:number){
     const cells=visibleCells();if(!cells.length)return;
-    const target=cells[Math.floor(Math.random()*cells.length)];if(!target)return;
+    const untended=cells.filter(c=>c.dataset.restored!=="true");
+    const pool=untended.length?untended:cells;
+    const target=pool[Math.floor(Math.random()*pool.length)];if(!target)return;
     if(!(await walkToCell(target,token)))return;
-    setPose("inspect");await wait(700+Math.random()*1300);
-    if(Math.random()<.42){setPose("poke");await wait(520);setPose("inspect");await wait(280)}
+    setPose("inspect");await wait(520+Math.random()*880);
+    const canHelp=target.dataset.restored!=="true"&&Date.now()-lastAmbientPoke.current>=6500;
+    if(canHelp&&Math.random()<.82){
+      setPose("poke");await wait(reduceMotion?45:260);
+      activateCell(target,240);
+      lastAmbientPoke.current=Date.now();
+      await wait(reduceMotion?60:430);
+      setPose("inspect");await wait(220);
+    }else if(Math.random()<.34){
+      setPose("poke");await wait(420);setPose("inspect");await wait(220);
+    }
   }
 
   async function ambientEdge(token:number,climb=false){
@@ -202,12 +225,14 @@ export default function FieldPetActor({pet,onNotify}:Props){
 
   useEffect(()=>{
     const down=(event:PointerEvent)=>{
+      if(syntheticPoke.current)return;
       const target=event.target;
       if(!(target instanceof Element)||!target.closest("[data-cell]"))return;
       playerDragging.current=true;
       if(!assisting.current){sequence.current++;stopMotion();busy.current=false;setPose("watch")}
     };
     const up=()=>{
+      if(syntheticPoke.current)return;
       if(!playerDragging.current)return;
       playerDragging.current=false;
       const queued=pendingAssist.current;
@@ -234,10 +259,10 @@ export default function FieldPetActor({pet,onNotify}:Props){
         await wait(650+Math.random()*950);
         if(cancelled||assisting.current||busy.current||playerDragging.current||!visibleCells().length)continue;
         busy.current=true;const token=++sequence.current,roll=Math.random();
-        if(roll<.48)await ambientWander(token);
-        else if(roll<.66)await ambientInspect(token);
-        else if(roll<.78){setPose("sit");await wait(1300+Math.random()*2200)}
-        else if(roll<.87){setPose("sleep");await wait(2000+Math.random()*3600)}
+        if(roll<.34)await ambientWander(token);
+        else if(roll<.64)await ambientInspect(token);
+        else if(roll<.76){setPose("sit");await wait(1300+Math.random()*2200)}
+        else if(roll<.85){setPose("sleep");await wait(2000+Math.random()*3600)}
         else if(roll<.95)await ambientEdge(token,false);
         else await ambientEdge(token,true);
         if(token===sequence.current&&!assisting.current)setPose("idle");
@@ -249,20 +274,23 @@ export default function FieldPetActor({pet,onNotify}:Props){
   },[pet?.id,reduceMotion]);
 
   useEffect(()=>{
-    seen.current.clear();charge.current=0;completedKey.current=null;
+    seen.current.clear();charge.current=0;completedKey.current=null;lastAmbientPoke.current=0;
     const seed=window.setTimeout(()=>document.querySelectorAll<HTMLElement>("[data-cell][data-restored='true']").forEach(el=>seen.current.add(el.dataset.cell||"")),180);
     const observer=new MutationObserver(mutations=>{
-      let newest:number|null=null,gained=0;
+      let newest:number|null=null,changed=0,playerGained=0;
+      const petCaused=Date.now()<=petEffectUntil.current;
       for(const mutation of mutations){
         if(mutation.type!=="attributes"||mutation.attributeName!=="data-restored")continue;
         const el=mutation.target as HTMLElement;if(el.dataset.restored!=="true")continue;
         const key=el.dataset.cell||"";if(seen.current.has(key))continue;
-        seen.current.add(key);newest=Number(key);gained++;
+        seen.current.add(key);newest=Number(key);changed++;
+        if(!petCaused&&!assisting.current)playerGained++;
       }
-      const save=loadPetSave(),current=activePet(save);if(!current||!gained)return;
-      const next=addPetProgress(save,current.id,assisting.current?0:gained,assisting.current?0:gained*.09,"tend");savePetSave(next);
-      if(!assisting.current){
-        charge.current+=gained;const refreshed=activePet(next);
+      const save=loadPetSave(),current=activePet(save);if(!current||!changed)return;
+      let next=save;
+      if(playerGained>0){
+        next=addPetProgress(save,current.id,playerGained,playerGained*.09,"tend");savePetSave(next);
+        charge.current+=playerGained;const refreshed=activePet(next);
         if(refreshed&&charge.current>=petAssistEvery(refreshed)){charge.current=0;void runAssist(newest??0,refreshed)}
       }
       const all=[...document.querySelectorAll<HTMLElement>("[data-cell]")],done=all.length>0&&all.every(el=>el.dataset.restored==="true");
