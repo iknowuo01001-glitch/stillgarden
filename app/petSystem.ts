@@ -91,7 +91,7 @@ function rollLustre(seed=Math.random()){ const r=seed; if(r<1/10000)return "ecli
 function makeGenes(seed:number, a?:PetGenes, b?:PetGenes, heirloom=false): PetGenes {
   const inherit=(key:keyof Omit<PetGenes,"lustre">,slot:number,max:number)=>{ const r=hash(seed+slot*91); if(a&&b&&r<.45)return Number(a[key]); if(a&&b&&r<.9)return Number(b[key]); return randGene(seed,slot,max); };
   let lustre:Lustre=rollLustre(hash(seed+909));
-  if(a&&b&&hash(seed+811)<(heirloom?.32:.18)) lustre=hash(seed+812)<.5?a.lustre:b.lustre;
+  if(a&&b&&hash(seed+811)<(heirloom ? .32 : .18)) lustre=hash(seed+812)<.5?a.lustre:b.lustre;
   return { coat:inherit("coat",1,12),accent:inherit("accent",2,10),pattern:inherit("pattern",3,7),ears:inherit("ears",4,5),tail:inherit("tail",5,5),bloom:inherit("bloom",6,6),size:inherit("size",7,7),lustre };
 }
 export function createPet(speciesId:PetSpeciesId, opts?:{parents?:Gardenkin[];generation?:number;seed?:number;name?:string}):Gardenkin{
@@ -135,7 +135,7 @@ export function inviteVisitor(save:PetSave):PetSave {
 export function setLureFromHarvest(save:PetSave,plantId:string):{save:PetSave;ok:boolean}{ const main=readMainSave(); if(!main?.harvested||Number(main.harvested[plantId]||0)<1)return {save,ok:false}; main.harvested[plantId]-=1; writeMainSave(main); return {save:{...save,lurePlant:plantId,nextVisitorAt:Math.min(save.nextVisitorAt,Date.now()+4*60_000)},ok:true}; }
 
 export function maybeFindNest(save:PetSave,stage:number):{save:PetSave;found:PetEgg|null}{
-  const active=save.pets.find(p=>p.id===save.activePetId); const seednose=active?.activeKnacks.includes("seednose")??false; const chance=.09+(seednose?.035:0)+Math.min(.11,save.nestMisses*.012);
+  const active=save.pets.find(p=>p.id===save.activePetId); const seednose=active?.activeKnacks.includes("seednose")??false; const chance=.09+(seednose ? .035 : 0)+Math.min(.11,save.nestMisses*.012);
   if(Math.random()>chance) return {save:{...save,nestMisses:save.nestMisses+1},found:null};
   const speciesId=weightedSpecies(stage,save.lurePlant,save.rarePity); const sp=speciesOf(speciesId); const baseMinutes=[0,8,20,45,90,180,300][sp.rarity]||30;
   const egg:PetEgg={id:uid("egg"),speciesId,readyAt:Date.now()+baseMinutes*60_000,createdAt:Date.now(),source:"found beneath a settled garden",odds:Math.max(4,Math.round(1/(chance*(1/Math.max(1,sp.rarity))))),geneSeed:Math.random()*1e9,parents:[],generation:1};
