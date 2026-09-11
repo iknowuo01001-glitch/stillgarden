@@ -1,0 +1,185 @@
+.rareOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--rare-color) 24%, transparent), transparent 34%),
+    rgba(29, 31, 29, .62);
+  backdrop-filter: blur(18px) saturate(.82);
+  animation: rareFade .28s ease both;
+}
+
+.rareCard {
+  --rare-color: #7f8f78;
+  width: min(500px, 100%);
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: clamp(28px, 6vw, 48px);
+  text-align: center;
+  border: 1px solid rgba(255,255,255,.38);
+  border-radius: 30px;
+  color: #292d29;
+  background:
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--rare-color) 24%, white), transparent 34%),
+    rgba(249,248,243,.96);
+  box-shadow:
+    0 30px 100px rgba(17,20,17,.3),
+    inset 0 1px 0 rgba(255,255,255,.88);
+  animation: rareCardIn .48s cubic-bezier(.18,.8,.2,1) both;
+}
+
+.rareCard::before,
+.rareCard::after {
+  content: "";
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--rare-color) 26%, transparent);
+  pointer-events: none;
+}
+.rareCard::before { top: -118px; left: -85px; }
+.rareCard::after { right: -92px; bottom: -126px; }
+
+.rareKicker {
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  opacity: .56;
+}
+
+.rareOrb {
+  width: 110px;
+  height: 110px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin: 3px 0 2px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255,255,255,.96) 0 5%, transparent 6%),
+    radial-gradient(circle, color-mix(in srgb, var(--rare-color) 78%, white), var(--rare-color));
+  box-shadow:
+    0 0 0 12px color-mix(in srgb, var(--rare-color) 8%, transparent),
+    0 0 60px color-mix(in srgb, var(--rare-color) 34%, transparent),
+    inset 0 0 0 1px rgba(255,255,255,.44);
+  animation: rarePulse 1.9s ease-in-out infinite alternate;
+}
+
+.rareOrb span {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 15px rgba(255,255,255,.9);
+}
+.rareOrb span:first-child {
+  left: -18px;
+  top: 19px;
+  animation: sparkleA 1.8s ease-in-out infinite;
+}
+.rareOrb span:last-child {
+  right: -25px;
+  bottom: 18px;
+  transform: scale(.7);
+  animation: sparkleB 2.2s ease-in-out infinite;
+}
+
+.rareCard h2 {
+  margin: 0;
+  font-size: clamp(32px, 7vw, 54px);
+  line-height: .98;
+  letter-spacing: -.052em;
+  font-weight: 590;
+}
+
+.rareCard p {
+  max-width: 370px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: .6;
+}
+
+.rareOdds {
+  min-width: 190px;
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 12px 18px;
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--rare-color) 10%, rgba(255,255,255,.7));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rare-color) 18%, transparent);
+}
+.rareOdds span {
+  font-size: 9px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  opacity: .46;
+}
+.rareOdds strong {
+  font-size: 24px;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.rareCard button {
+  margin-top: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 20px;
+  color: #292d29;
+  background: color-mix(in srgb, var(--rare-color) 20%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rare-color) 24%, transparent);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+@keyframes rareFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rareCardIn {
+  0% { opacity: 0; transform: translateY(12px) scale(.93); }
+  68% { opacity: 1; transform: translateY(-2px) scale(1.012); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes rarePulse {
+  from { transform: scale(.97); box-shadow: 0 0 0 10px color-mix(in srgb, var(--rare-color) 7%, transparent), 0 0 45px color-mix(in srgb, var(--rare-color) 25%, transparent), inset 0 0 0 1px rgba(255,255,255,.44); }
+  to { transform: scale(1.025); box-shadow: 0 0 0 16px color-mix(in srgb, var(--rare-color) 10%, transparent), 0 0 72px color-mix(in srgb, var(--rare-color) 42%, transparent), inset 0 0 0 1px rgba(255,255,255,.44); }
+}
+
+@keyframes sparkleA {
+  0%, 100% { opacity: .12; transform: scale(.6); }
+  45% { opacity: 1; transform: scale(1.35); }
+}
+
+@keyframes sparkleB {
+  0%, 100% { opacity: .25; transform: scale(.55); }
+  60% { opacity: 1; transform: scale(1.15); }
+}
+
+@media (max-width: 600px) {
+  .rareOverlay { padding: 14px; }
+  .rareCard { padding: 30px 22px; border-radius: 24px; }
+  .rareOrb { width: 92px; height: 92px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rareOverlay,
+  .rareCard,
+  .rareOrb,
+  .rareOrb span { animation: none; }
+}
