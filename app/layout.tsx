@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import PetBridge from "./PetBridge";
 
 export const metadata: Metadata = {
   title: "Stillgarden",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>{children}<PetBridge /></body>
     </html>
   );
 }
