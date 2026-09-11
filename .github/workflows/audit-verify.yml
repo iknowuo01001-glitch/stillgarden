@@ -1,0 +1,20 @@
+name: Full game audit
+
+on:
+  push:
+    branches: [audit/full-verification]
+
+jobs:
+  verify:
+    if: contains(github.event.head_commit.message, 'Apply full-game audit fixes')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run test:unit
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
